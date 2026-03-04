@@ -1,6 +1,7 @@
 """
 Chat Completions Router — POST /v1/chat/completions
-Proxies to Inference service with optional RAG context injection.
+Proxies to the best available inference node with optional RAG context injection.
+Uses NodeManager for load balancing across multiple nodes.
 """
 
 import json
@@ -11,6 +12,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from schemas.chat import ChatCompletionRequest, ChatCompletionResponse
+from node_manager import node_manager
 
 router = APIRouter(tags=["Chat"])
 
@@ -19,8 +21,10 @@ router = APIRouter(tags=["Chat"])
 async def chat_completions(req: ChatCompletionRequest, request: Request):
     """OpenAI-compatible chat completions endpoint with optional RAG."""
     client: httpx.AsyncClient = request.app.state.http_client
-    inference_url = request.app.state.inference_url
     rag_engine_url = request.app.state.rag_engine_url
+
+    # Pick the best node for this model
+    node_url = node_manager.get_node_url(model=req.model)
 
     messages = [m.model_dump() for m in req.messages]
 
@@ -32,7 +36,6 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
         rag_top_k = req.extra_body.get("rag_top_k", 5)
 
     if file_ids:
-        # Get last user message for RAG query
         last_user_content = ""
         for m in reversed(messages):
             if m.get("role") == "user":
@@ -63,7 +66,6 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                                 f"=== КОНТЕКСТ ===\n{context}\n=== КОНЕЦ КОНТЕКСТА ==="
                             ),
                         }
-                        # Insert after first system message or at beginning
                         insert_idx = 0
                         for i, m in enumerate(messages):
                             if m.get("role") == "system":
@@ -86,19 +88,25 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
     if req.top_p is not None:
         payload["top_p"] = req.top_p
 
+    # Track request on the node
+    node_manager.track_request_start(node_url)
+
     # ─── Streaming ────────────────────────────────────────────
     if req.stream:
         async def stream_generator():
-            async with client.stream(
-                "POST",
-                f"{inference_url}/v1/chat/completions",
-                json=payload,
-                timeout=300.0,
-            ) as resp:
-                async for line in resp.aiter_lines():
-                    if line:
-                        yield f"{line}\n"
-                yield "data: [DONE]\n\n"
+            try:
+                async with client.stream(
+                    "POST",
+                    f"{node_url}/v1/chat/completions",
+                    json=payload,
+                    timeout=300.0,
+                ) as resp:
+                    async for line in resp.aiter_lines():
+                        if line:
+                            yield f"{line}\n"
+                    yield "data: [DONE]\n\n"
+            finally:
+                node_manager.track_request_end(node_url)
 
         return StreamingResponse(
             stream_generator(),
@@ -110,22 +118,24 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
         )
 
     # ─── Non-streaming ────────────────────────────────────────
-    resp = await client.post(
-        f"{inference_url}/v1/chat/completions",
-        json=payload,
-        timeout=300.0,
-    )
-    return resp.json()
+    try:
+        resp = await client.post(
+            f"{node_url}/v1/chat/completions",
+            json=payload,
+            timeout=300.0,
+        )
+        return resp.json()
+    finally:
+        node_manager.track_request_end(node_url)
 
 
 @router.post("/api/chat")
 async def api_chat(request: Request):
     """
     Legacy chat endpoint compatible with the built-in Web UI.
-    Accepts {messages, collection, stream} and proxies to the inference service.
+    Accepts {messages, collection, stream} and proxies to the best inference node.
     """
     client: httpx.AsyncClient = request.app.state.http_client
-    inference_url = request.app.state.inference_url
     rag_engine_url = request.app.state.rag_engine_url
 
     data = await request.json()
@@ -136,7 +146,10 @@ async def api_chat(request: Request):
     temperature = data.get("temperature")
     max_tokens = data.get("max_tokens")
 
-    sources = []  # RAG sources for citation
+    # Pick the best node
+    node_url = node_manager.get_node_url(model=model)
+
+    sources = []
 
     # RAG context injection via collection name
     if collection and messages:
@@ -160,7 +173,6 @@ async def api_chat(request: Request):
                 if rag_resp.status_code == 200:
                     chunks = rag_resp.json().get("results", [])
                     if chunks:
-                        # Build context with numbered sources
                         context_parts = []
                         for i, c in enumerate(chunks, 1):
                             source_name = c.get("metadata", {}).get("source", "unknown")
@@ -186,7 +198,6 @@ async def api_chat(request: Request):
                                 f"=== КОНТЕКСТ ИЗ ДОКУМЕНТОВ ===\n{context}\n=== КОНЕЦ КОНТЕКСТА ==="
                             ),
                         }
-                        # Insert as first message (before everything)
                         messages.insert(0, rag_system)
             except Exception as e:
                 print(f"RAG query error: {e}")
@@ -197,34 +208,40 @@ async def api_chat(request: Request):
     if max_tokens is not None:
         payload["max_tokens"] = max_tokens
 
+    node_manager.track_request_start(node_url)
+
     if stream:
         async def stream_gen():
-            async with client.stream(
-                "POST",
-                f"{inference_url}/v1/chat/completions",
-                json=payload,
-                timeout=300.0,
-            ) as resp:
-                async for line in resp.aiter_lines():
-                    if line:
-                        yield f"{line}\n"
-                yield "data: [DONE]\n\n"
-            # Send sources as final SSE event
-            if sources:
-                yield f"data: {json.dumps({'sources': sources})}\n\n"
+            try:
+                async with client.stream(
+                    "POST",
+                    f"{node_url}/v1/chat/completions",
+                    json=payload,
+                    timeout=300.0,
+                ) as resp:
+                    async for line in resp.aiter_lines():
+                        if line:
+                            yield f"{line}\n"
+                    yield "data: [DONE]\n\n"
+                if sources:
+                    yield f"data: {json.dumps({'sources': sources})}\n\n"
+            finally:
+                node_manager.track_request_end(node_url)
 
         return StreamingResponse(
             stream_gen(),
             media_type="text/event-stream",
         )
 
-    resp = await client.post(
-        f"{inference_url}/v1/chat/completions",
-        json=payload,
-        timeout=300.0,
-    )
-    result = resp.json()
-    if sources:
-        result["sources"] = sources
-    return result
-
+    try:
+        resp = await client.post(
+            f"{node_url}/v1/chat/completions",
+            json=payload,
+            timeout=300.0,
+        )
+        result = resp.json()
+        if sources:
+            result["sources"] = sources
+        return result
+    finally:
+        node_manager.track_request_end(node_url)

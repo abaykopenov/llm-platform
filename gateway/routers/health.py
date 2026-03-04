@@ -1,6 +1,6 @@
 """
 Health Router — GET /health, GET /status
-Health checks and cluster status.
+Health checks and cluster status across all inference nodes.
 """
 
 import os
@@ -12,25 +12,38 @@ import time
 import httpx
 from fastapi import APIRouter, Request
 
+from node_manager import node_manager
+
 router = APIRouter(tags=["Health"])
 
 
 @router.get("/health")
 async def health_check(request: Request):
-    """Health check for all downstream services."""
+    """Health check for all services and inference nodes."""
     client: httpx.AsyncClient = request.app.state.http_client
-    inference_url = request.app.state.inference_url
     rag_engine_url = request.app.state.rag_engine_url
     chromadb_url = request.app.state.chromadb_url
 
     services = {}
 
-    # Check inference (Ollama)
-    try:
-        resp = await client.get(f"{inference_url}/api/tags", timeout=5.0)
-        services["inference"] = {"status": "healthy" if resp.status_code == 200 else "unhealthy"}
-    except Exception as e:
-        services["inference"] = {"status": "unhealthy", "error": str(e)}
+    # Check inference nodes (via NodeManager)
+    cluster = node_manager.get_status()
+    services["inference"] = {
+        "status": "healthy" if cluster["healthy_nodes"] > 0 else "unhealthy",
+        "total_nodes": cluster["total_nodes"],
+        "healthy_nodes": cluster["healthy_nodes"],
+        "nodes": [
+            {
+                "name": n["name"],
+                "url": n["url"],
+                "status": "healthy" if n["healthy"] else "unhealthy",
+                "server_type": n["server_type"],
+                "models": n["models_count"],
+                "error": n.get("error", ""),
+            }
+            for n in cluster["nodes"]
+        ],
+    }
 
     # Check RAG engine
     try:
@@ -39,22 +52,26 @@ async def health_check(request: Request):
     except Exception as e:
         services["rag_engine"] = {"status": "unhealthy", "error": str(e)}
 
-    # Check ChromaDB — any response means it's alive
+    # Check ChromaDB
     chromadb_healthy = False
     for path in ["/api/v2/heartbeat", "/api/v1/heartbeat", "/"]:
         try:
             resp = await client.get(f"{chromadb_url}{path}", timeout=5.0)
-            # Any response (200, 404, 410) means ChromaDB is running
             chromadb_healthy = True
             break
         except Exception:
             continue
     services["chromadb"] = {"status": "healthy" if chromadb_healthy else "unhealthy"}
 
-    all_healthy = all(s["status"] == "healthy" for s in services.values())
+    # Overall status
+    core_healthy = (
+        cluster["healthy_nodes"] > 0
+        and services["rag_engine"]["status"] == "healthy"
+        and chromadb_healthy
+    )
 
     return {
-        "status": "healthy" if all_healthy else "degraded",
+        "status": "healthy" if core_healthy else "degraded",
         "timestamp": time.time(),
         "services": services,
     }
@@ -62,26 +79,19 @@ async def health_check(request: Request):
 
 @router.get("/status")
 async def cluster_status(request: Request):
-    """Cluster status — GPU, RAM, queue info."""
+    """Cluster status — nodes, models, GPU info."""
     client: httpx.AsyncClient = request.app.state.http_client
-    inference_url = request.app.state.inference_url
     rag_engine_url = request.app.state.rag_engine_url
+
+    all_models = node_manager.get_all_models()
+    cluster = node_manager.get_status()
 
     status = {
         "timestamp": time.time(),
-        "inference": {},
+        "cluster": cluster,
+        "models": [m["name"] for m in all_models],
         "rag_engine": {},
-        "models": [],
     }
-
-    # Get inference info
-    try:
-        resp = await client.get(f"{inference_url}/v1/models", timeout=5.0)
-        if resp.status_code == 200:
-            data = resp.json()
-            status["models"] = [m.get("id", "") for m in data.get("data", [])]
-    except Exception:
-        pass
 
     # Get RAG engine stats
     try:
@@ -197,4 +207,3 @@ async def api_all_machines(request: Request):
                 "last_update": time.time(),
             }
         }
-
