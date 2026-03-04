@@ -1,0 +1,50 @@
+# ============================================================
+#  Prometheus Configuration
+# ============================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # ─── Gateway ────────────────────────────────────────────────
+  - job_name: 'gateway'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['gateway:8000']
+        labels:
+          service: 'gateway'
+
+  # ─── RAG Engine ─────────────────────────────────────────────
+  - job_name: 'rag-engine'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['rag-engine:8200']
+        labels:
+          service: 'rag-engine'
+
+  # ─── vLLM Inference ────────────────────────────────────────
+  - job_name: 'inference'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['inference:8300']
+        labels:
+          service: 'inference'
+
+  # ─── Node Exporter (if installed on servers) ────────────────
+  - job_name: 'node-server1'
+    static_configs:
+      - targets: ['192.168.8.9:9100']
+        labels:
+          instance: 'gx10-1'
+
+  - job_name: 'node-server2'
+    static_configs:
+      - targets: ['192.168.8.10:9100']
+        labels:
+          instance: 'gx10-2'
+
+  # ─── NVIDIA GPU Exporter ───────────────────────────────────
+  - job_name: 'nvidia-gpu'
+    static_configs:
+      - targets: ['192.168.8.9:9835', '192.168.8.10:9835']

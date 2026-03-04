@@ -1,0 +1,96 @@
+services:
+  # ─── API Gateway ────────────────────────────────────────────
+  gateway:
+    build: ./gateway
+    ports:
+      - "${GATEWAY_PORT:-8000}:8000"
+    environment:
+      - RAG_ENGINE_URL=http://rag-engine:8200
+      - INFERENCE_URL=${INFERENCE_URL:-http://host.docker.internal:11434}
+      - CHROMADB_URL=http://chromadb:8000
+      - API_KEYS=${API_KEYS:-}
+      - RATE_LIMIT_RPM=${RATE_LIMIT_RPM:-60}
+    depends_on:
+      - rag-engine
+      - chromadb
+    restart: unless-stopped
+    networks:
+      - llm-net
+
+  # ─── RAG Engine ─────────────────────────────────────────────
+  rag-engine:
+    build: ./rag-engine
+    ports:
+      - "${RAG_ENGINE_PORT:-8200}:8200"
+    volumes:
+      - uploads_data:/data/uploads
+    environment:
+      - CHROMADB_URL=http://chromadb:8000
+      - INFERENCE_URL=${INFERENCE_URL:-http://host.docker.internal:11434}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
+      - CHUNK_SIZE=${CHUNK_SIZE:-800}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-100}
+      - DEFAULT_COLLECTION=${DEFAULT_COLLECTION:-general}
+    depends_on:
+      - chromadb
+    restart: unless-stopped
+    networks:
+      - llm-net
+
+  # ─── LLM Inference (OPTIONAL — for production) ─────────────
+  # Раскомментируйте когда будете деплоить на GPU-серверах.
+  # Для тестирования используется Ollama на хосте (INFERENCE_URL в .env).
+  #
+  # inference:
+  #   image: ollama/ollama:latest
+  #   ports:
+  #     - "${INFERENCE_PORT:-11434}:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   environment:
+  #     - OLLAMA_HOST=0.0.0.0
+  #     - NVIDIA_VISIBLE_DEVICES=all
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - capabilities: [gpu]
+  #             count: all
+  #   restart: unless-stopped
+  #   networks:
+  #     - llm-net
+
+  # ─── ChromaDB (Vector Store) ───────────────────────────────
+  chromadb:
+    image: chromadb/chroma:latest
+    ports:
+      - "${CHROMADB_PORT:-8400}:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    restart: unless-stopped
+    networks:
+      - llm-net
+
+  # ─── Web UI ─────────────────────────────────────────────────
+  web-ui:
+    build:
+      context: ./web-ui
+      args:
+        - NEXT_PUBLIC_API_URL=http://localhost:${GATEWAY_PORT:-8000}
+    ports:
+      - "${WEBUI_PORT:-3001}:3000"
+    depends_on:
+      - gateway
+    restart: unless-stopped
+    networks:
+      - llm-net
+
+# ─── Volumes ───────────────────────────────────────────────────
+volumes:
+  uploads_data:
+  chroma_data:
+
+    # ─── Networks ──────────────────────────────────────────────────
+networks:
+  llm-net:
+    driver: bridge

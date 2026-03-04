@@ -1,0 +1,136 @@
+{
+    "annotations": {
+        "list": []
+    },
+    "editable": true,
+    "panels": [
+        {
+            "title": "Files Ingested (Total)",
+            "type": "stat",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 4,
+                "w": 6,
+                "x": 0,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "rag_files_ingested_total",
+                    "legendFormat": "files"
+                }
+            ]
+        },
+        {
+            "title": "Chunks Created (Total)",
+            "type": "stat",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 4,
+                "w": 6,
+                "x": 6,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "rag_chunks_created_total",
+                    "legendFormat": "chunks"
+                }
+            ]
+        },
+        {
+            "title": "Queries Processed",
+            "type": "stat",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 4,
+                "w": 6,
+                "x": 12,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "rate(rag_queries_total[5m])",
+                    "legendFormat": "queries/s"
+                }
+            ]
+        },
+        {
+            "title": "Embedding Latency",
+            "type": "stat",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 4,
+                "w": 6,
+                "x": 18,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "histogram_quantile(0.95, rate(rag_embedding_latency_bucket[5m]))",
+                    "legendFormat": "p95"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s"
+                }
+            }
+        },
+        {
+            "title": "Ingestion Pipeline Duration",
+            "type": "timeseries",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 4
+            },
+            "targets": [
+                {
+                    "expr": "histogram_quantile(0.95, rate(rag_ingestion_duration_bucket[5m]))",
+                    "legendFormat": "Ingestion p95"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s"
+                }
+            }
+        },
+        {
+            "title": "Query Latency",
+            "type": "timeseries",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 4
+            },
+            "targets": [
+                {
+                    "expr": "histogram_quantile(0.50, rate(rag_query_latency_bucket[5m]))",
+                    "legendFormat": "p50"
+                },
+                {
+                    "expr": "histogram_quantile(0.95, rate(rag_query_latency_bucket[5m]))",
+                    "legendFormat": "p95"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s"
+                }
+            }
+        }
+    ],
+    "schemaVersion": 38,
+    "tags": [
+        "rag",
+        "pipeline"
+    ],
+    "title": "RAG Pipeline",
+    "uid": "rag-pipeline"
+}

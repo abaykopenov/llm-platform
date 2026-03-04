@@ -1,0 +1,108 @@
+{
+    "annotations": {
+        "list": []
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "links": [],
+    "panels": [
+        {
+            "title": "GPU Utilization (%)",
+            "type": "timeseries",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "DCGM_FI_DEV_GPU_UTIL",
+                    "legendFormat": "{{gpu}} - {{instance}}"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percent",
+                    "min": 0,
+                    "max": 100
+                }
+            }
+        },
+        {
+            "title": "GPU Temperature (°C)",
+            "type": "timeseries",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "DCGM_FI_DEV_GPU_TEMP",
+                    "legendFormat": "{{gpu}} - {{instance}}"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "celsius"
+                }
+            }
+        },
+        {
+            "title": "GPU Memory Used (MiB)",
+            "type": "timeseries",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 8
+            },
+            "targets": [
+                {
+                    "expr": "DCGM_FI_DEV_FB_USED",
+                    "legendFormat": "{{gpu}} - {{instance}}"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "decmbytes"
+                }
+            }
+        },
+        {
+            "title": "GPU Power Draw (W)",
+            "type": "timeseries",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 8
+            },
+            "targets": [
+                {
+                    "expr": "DCGM_FI_DEV_POWER_USAGE",
+                    "legendFormat": "{{gpu}} - {{instance}}"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "watt"
+                }
+            }
+        }
+    ],
+    "schemaVersion": 38,
+    "tags": [
+        "gpu",
+        "nvidia"
+    ],
+    "title": "GPU Usage",
+    "uid": "gpu-usage"
+}
